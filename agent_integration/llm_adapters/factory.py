@@ -3,6 +3,7 @@ LLM适配器工厂函数 - 根据提供商创建相应的LLM适配器实例
 """
 from .deepseek import ChatDeepSeek
 from .minimax import ChatMiniMax
+from .claude import ChatClaude
 from .base import (
     OpenAICompatibleBase,
     get_global_token_tracker,
@@ -12,6 +13,7 @@ from .base import (
 PROVIDER_MAP = {
     'deepseek': ChatDeepSeek,
     'minimax': ChatMiniMax,
+    'anthropic': ChatClaude,
 }
 
 MODEL_PROVIDER_MAP = {
@@ -20,6 +22,9 @@ MODEL_PROVIDER_MAP = {
     'deepseek-reasoner': 'deepseek',
     'MiniMax-M2.7': 'minimax',
     'MiniMax-M2': 'minimax',
+    'claude-opus-4-20250514': 'anthropic',
+    'claude-sonnet-4-20250514': 'anthropic',
+    'claude-haiku-4-5-20251001': 'anthropic',
 }
 
 

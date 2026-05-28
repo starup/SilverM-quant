@@ -45,3 +45,9 @@ Thumbs.db
 # Environment variables (API keys)
 .env
 
+# Logs
+logs/
+
+# Claude
+.claude/
+
