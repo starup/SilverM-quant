@@ -107,11 +107,6 @@ export const useBacktestStore = defineStore('backtest', () => {
   }
 
   async function runBacktest() {
-    if (selectedStrategies.value.length === 0) {
-      error.value = '请至少选择一个策略'
-      return
-    }
-
     if (!startDate.value || !endDate.value) {
       error.value = '请选择日期范围'
       return
@@ -122,26 +117,49 @@ export const useBacktestStore = defineStore('backtest', () => {
       error.value = null
       currentResult.value = { run_id: '', status: 'running' }
 
-      const params: BacktestParams = {
-        strategy_name: selectedStrategies.value[0], // API expects single strategy name
+      const params: any = {
+        mode: 'resonance',
         start_date: startDate.value.replace(/-/g, ''),
         end_date: endDate.value.replace(/-/g, ''),
-        initial_capital: initialCapital.value
+        initial_cash: initialCapital.value,
+        stock_limit: 100,
+        min_signals: 2,
+        max_positions: 5,
       }
 
-      if (stockSelectionMode.value === 'single' && selectedStocks.value.length > 0) {
-        params.stock_list = [selectedStocks.value[0]]
-      } else if (stockSelectionMode.value === 'multiple' && selectedStocks.value.length > 0) {
-        params.stock_list = selectedStocks.value
+      if (selectedStrategies.value.length > 0) {
+        const stratName = selectedStrategies.value[0].toLowerCase()
+        if (['b1', 'b2', 'blk', 'scb', 'dl', 'dz30'].includes(stratName)) {
+          params.mode = 'single'
+          params.strategy = stratName
+        }
       }
 
-      const response = await axios.post('/api/backtest/run', params)
+      if (stockSelectionMode.value !== 'all' && selectedStocks.value.length > 0) {
+        params.stock_limit = selectedStocks.value.length
+      }
 
+      const response = await axios.post('/api/backtest/lite-run', params)
+
+      const m = response.data.metrics || {}
       currentResult.value = {
-        run_id: response.data.run_id,
-        status: response.data.status || 'completed',
-        metrics: response.data.metrics,
-        error: response.data.error
+        run_id: 'lite_' + Date.now(),
+        status: 'completed',
+        metrics: {
+          total_return: (m.total_return_pct || 0) / 100,
+          annual_return: (m.annual_return_pct || 0) / 100,
+          benchmark_return: 0,
+          excess_return: 0,
+          sharpe_ratio: 0,
+          sortino_ratio: 0,
+          calmar_ratio: 0,
+          max_drawdown: (m.max_drawdown_pct || 0) / 100,
+          max_drawdown_duration: 0,
+          volatility: 0,
+          win_rate: (m.win_rate || 0) / 100,
+          profit_loss_ratio: m.avg_win_pct && m.avg_loss_pct ? Math.abs(m.avg_win_pct / m.avg_loss_pct) : 0,
+          total_trades: m.total_buy_trades || 0,
+        }
       }
     } catch (e: any) {
       error.value = e.response?.data?.error || '回测运行失败'

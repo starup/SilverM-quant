@@ -51,16 +51,14 @@ SELL_STRATEGY_NAME_MAP = {
 }
 
 def get_db():
-    return duckdb.connect(DB_PATH, read_only=True)
+    from database.connection import get_connection
+    return get_connection(DB_PATH)
 
 def get_latest_trading_date():
     db = get_db()
-    try:
-        latest = db.execute("SELECT MAX(trade_date) FROM dwd_daily_price").fetchone()[0]
-        if latest:
-            return latest.strftime('%Y-%m-%d')
-    finally:
-        db.close()
+    latest = db.execute("SELECT MAX(trade_date) FROM dwd_daily_price").fetchone()[0]
+    if latest:
+        return latest.strftime('%Y-%m-%d')
     return datetime.now().strftime('%Y-%m-%d')
 
 def code_to_ts_code(code: str) -> str:
@@ -73,10 +71,12 @@ def code_to_ts_code(code: str) -> str:
 
 def clean_df_for_json(df):
     for col in df.columns:
-        if df[col].dtype == 'object' or str(df[col].dtype).startswith('datetime'):
-            df[col] = df[col].apply(lambda x: None if pd.isna(x) else (x.strftime('%Y-%m-%d') if hasattr(x, 'strftime') else x))
+        if str(df[col].dtype).startswith('datetime'):
+            df[col] = df[col].apply(lambda x: x.strftime('%Y-%m-%d') if hasattr(x, 'strftime') else None)
         elif pd.api.types.is_numeric_dtype(df[col]):
-            df[col] = df[col].replace({np.nan: None})
+            df[col] = df[col].astype(object).where(df[col].notna(), None)
+        else:
+            df[col] = df[col].where(df[col].notna(), None)
     return df
 
 def map_sell_reason(reason):
@@ -155,14 +155,14 @@ def api_positions():
         order = order.upper() if order.upper() in ('ASC', 'DESC') else 'DESC'
 
         df = db.execute(f"""
-            SELECT 
+            SELECT
                 id, code, name, strategy,
-                signal_date, buy_date, shares, buy_price,
+                buy_date, shares, buy_price,
                 buy_change_pct, buy_score_b1, buy_score_b2,
                 current_price, profit_loss, profit_pct,
                 stop_loss_pct, status, notes,
                 ROUND(shares * buy_price * 0.9998, 2) as position_amount
-            FROM positions 
+            FROM positions
             WHERE status = 'holding'
             ORDER BY {sort} {order}
         """).df()
@@ -200,7 +200,7 @@ def api_positions():
         # 查询历史交易总盈亏
         history_profit = db.execute("SELECT COALESCE(SUM(profit_loss), 0) FROM positions WHERE status = 'sold'").fetchone()[0]
         
-        total_capital = 500000  # 总资金
+        total_capital = 203259.16  # 总资产
         total_value = sum(p['current_price'] * p['shares'] if p['current_price'] else 0 for p in positions)
         total_cost = sum(p['buy_price'] * p['shares'] if p['buy_price'] else 0 for p in positions)
         holding_profit = total_value - total_cost  # 持仓盈亏
@@ -238,9 +238,9 @@ def api_history():
             ORDER BY sell_date DESC
         """).df()
         
-        df['buy_signal_type'] = df['strategy'].apply(lambda x: x if x else '趋势择时')
-        df['sell_signal_type'] = df['sell_reason'].apply(lambda x: map_sell_reason(x) if x else '信号卖出')
-        
+        df['buy_signal_type'] = df['strategy'].apply(lambda x: x if pd.notna(x) else '趋势择时')
+        df['sell_signal_type'] = df['sell_reason'].apply(lambda x: map_sell_reason(x) if pd.notna(x) else '信号卖出')
+
         df = clean_df_for_json(df)
         history = df.to_dict('records')
         

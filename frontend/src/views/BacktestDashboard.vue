@@ -745,8 +745,8 @@ async function rescanStrategies() {
               </div>
 
               <button
-                @click="store.stockSelectionMode === 'all' ? store.submitBatchBacktest(paramGridInput) : store.runBacktest()"
-                :disabled="store.isLoading || store.selectedStrategies.length === 0 || store.isBatchRunning"
+                @click="store.runBacktest()"
+                :disabled="store.isLoading"
                 class="w-full py-3 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:from-slate-600 disabled:to-slate-600 disabled:cursor-not-allowed rounded-lg font-medium transition-all flex items-center justify-center gap-2"
               >
                 <svg v-if="store.isLoading || store.isBatchRunning" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">

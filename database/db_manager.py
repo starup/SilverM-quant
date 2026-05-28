@@ -420,27 +420,41 @@ class DatabaseManager:
         if 'positions' in df.columns:
             df['positions'] = df['positions'].apply(json.dumps)
         
-        self.conn.execute("""
-            CREATE TEMPORARY TABLE temp_pnl AS SELECT * FROM df;
-            
-            INSERT OR REPLACE INTO backtest_daily_pnl 
-            SELECT * FROM temp_pnl;
-            
-            DROP TABLE temp_pnl;
-        """)
+        # 只保留表里有的列
+        table_cols = [r[0] for r in self.conn.execute('DESCRIBE backtest_daily_pnl').fetchall()]
+        df_cols = [c for c in table_cols if c in df.columns]
+        df_insert = df[df_cols]
+
+        # 先删除同 run_id 的旧数据，再插入
+        self.conn.execute(f"DELETE FROM backtest_daily_pnl WHERE run_id = '{run_id}'")
+        cols_str = ', '.join(df_cols)
+        self.conn.execute(f"INSERT INTO backtest_daily_pnl ({cols_str}) SELECT {cols_str} FROM df_insert")
     
     def save_backtest_performance(self, run_id: str, metrics: Dict[str, Any]):
         """保存回测绩效指标"""
+        # 获取表的实际列名
+        table_cols = {r[0] for r in self.conn.execute('DESCRIBE backtest_performance').fetchall()}
+
+        # 列名映射（engine 输出 -> 表列名）
+        col_mapping = {
+            'annual_return': 'annualized_return',
+        }
+        mapped = {}
+        for k, v in metrics.items():
+            mapped_key = col_mapping.get(k, k)
+            if mapped_key in table_cols and mapped_key != 'run_id':
+                mapped[mapped_key] = v
+
         # 转换JSON字段
         json_fields = ['industry_analysis', 'cap_group_analysis', 'monthly_returns']
         for field in json_fields:
-            if field in metrics and metrics[field] is not None:
-                metrics[field] = json.dumps(metrics[field])
+            if field in mapped and mapped[field] is not None:
+                mapped[field] = json.dumps(mapped[field])
         
         # 构建INSERT语句
-        columns = ', '.join(metrics.keys())
+        columns = ', '.join(mapped.keys())
         values = []
-        for v in metrics.values():
+        for v in mapped.values():
             if isinstance(v, str):
                 values.append(f"'{v}'")
             elif v is None:

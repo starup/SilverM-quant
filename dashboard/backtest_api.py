@@ -252,7 +252,95 @@ def run_backtest():
         return jsonify({'error': str(e)}), 500
 
 
-@backtest_bp.route('/history', methods=['GET'])
+@backtest_bp.route('/lite-run', methods=['POST'])
+def lite_run_backtest():
+    """轻量级回测 - 基于信号即时计算
+
+    POST /api/backtest/lite-run
+    Body: {
+        "mode": "resonance" | "single",       // 默认 resonance
+        "strategy": "b1",                     // single 模式需指定
+        "start_date": "20250101",             // 默认 20250101
+        "end_date": "20260527",              // 默认最新
+        "initial_cash": 200000,              // 默认 200000
+        "min_signals": 2,                    // 共振最少信号数，默认 2
+        "max_positions": 5,                  // 最大持仓，默认 5
+        "stop_loss": 0.03,                   // 止损比例，默认 0.03
+        "stock_limit": 100                   // 回测股票数，默认 100
+    }
+    """
+    data = request.get_json() or {}
+
+    mode = data.get('mode', 'resonance')
+    strategy = data.get('strategy')
+    start_date = data.get('start_date', '20250101')
+    end_date = data.get('end_date', '20260527')
+    initial_cash = data.get('initial_cash', 200000.0)
+    min_signals = data.get('min_signals', 2)
+    max_positions = data.get('max_positions', 5)
+    stop_loss = data.get('stop_loss', 0.03)
+    stock_limit = data.get('stock_limit', 100)
+
+    if mode == 'single' and not strategy:
+        return jsonify({'error': '单策略模式需要指定 strategy 参数 (b1/b2/blk/scb)'}), 400
+
+    try:
+        from backtest.strategy_backtest.lite_backtest import LiteBacktest
+        from database.connection import get_connection
+
+        conn = get_connection(DB_PATH)
+        stocks = conn.execute(f"""
+            SELECT symbol FROM dwd_stock_info
+            WHERE list_status = 'L'
+            ORDER BY RANDOM()
+            LIMIT {stock_limit}
+        """).fetchall()
+        stock_codes = [row[0] for row in stocks]
+
+        bt = LiteBacktest(
+            initial_cash=initial_cash,
+            max_positions=max_positions,
+            stop_loss=stop_loss,
+            signal_mode=mode,
+            strategy_name=strategy,
+            min_signals=min_signals,
+        )
+
+        result = bt.run(stock_codes, start_date, end_date)
+
+        if result['status'] != 'success':
+            return jsonify({'error': result.get('error', '回测失败')}), 500
+
+        response = {
+            'status': 'completed',
+            'mode': mode,
+            'strategy': strategy,
+            'metrics': {
+                'initial_cash': result['initial_cash'],
+                'final_value': result['final_value'],
+                'total_return_pct': result['total_return_pct'],
+                'annual_return_pct': result['annual_return_pct'],
+                'max_drawdown_pct': result['max_drawdown_pct'],
+                'total_buy_trades': result['total_buy_trades'],
+                'total_sell_trades': result['total_sell_trades'],
+                'win_rate': result['win_rate'],
+                'avg_win_pct': result['avg_win_pct'],
+                'avg_loss_pct': result['avg_loss_pct'],
+                'open_positions': result['open_positions'],
+                'stock_count': result.get('stock_count', len(stock_codes)),
+                'days': result['days'],
+            },
+            'strategy_stats': result.get('strategy_stats', {}),
+            'equity_curve': result.get('daily_values', []),
+            'trades': result.get('trades', [])[:100],
+        }
+
+        return jsonify(response)
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 def get_history():
     """获取回测历史
 

@@ -102,9 +102,12 @@ def convert_to_serializable(obj):
     else:
         return obj
 
-def get_db_connection():
-    """获取数据库连接"""
-    return duckdb.connect(DB_PATH, read_only=True)  # 只读模式
+def get_db_connection(write=False):
+    """获取数据库连接 — 默认只读，写入时传 write=True"""
+    from database.connection import get_connection
+    if write:
+        return get_connection(DB_PATH, read_only=False)
+    return get_connection(DB_PATH, read_only=True)
 
 
 def get_trading_date(date: Optional[str] = None) -> str:
@@ -258,7 +261,8 @@ def update_all_positions_observation_states(updates: List[tuple]):
     if not updates:
         return
     
-    conn = duckdb.connect(DB_PATH, read_only=False)
+    from database.connection import get_connection
+    conn = get_connection(DB_PATH)
     try:
         for code, is_observing in updates:
             conn.execute("""
@@ -272,7 +276,8 @@ def update_all_positions_observation_states(updates: List[tuple]):
 
 def update_positions_observation_state(code: str, is_observing: bool):
     """更新持仓股票的观察状态到 positions 表"""
-    conn = duckdb.connect(DB_PATH, read_only=False)
+    from database.connection import get_connection
+    conn = get_connection(DB_PATH)
     try:
         conn.execute("""
             UPDATE positions
@@ -857,16 +862,20 @@ def scan_signals(trading_date: str, workers: int = DEFAULT_WORKERS) -> Dict[str,
     logger.info(f"获取 {len(positions_observing_snapshot)} 只持仓股的观察状态")
     
     args_list = [
-        (s['code'], s['name'], trading_date, 
+        (s['code'], s['name'], trading_date,
          positions_observing_snapshot.get(s['code'], False))
         for s in stocks
     ]
-    
+
+    # 释放主进程的读写连接，子进程才能以只读方式打开
+    from database.connection import close_connection
+    close_connection()
+
     results = []
     observation_updates = []
     success_count = 0
     fail_count = 0
-    
+
     pool = None
     try:
         pool = Pool(processes=workers)
@@ -920,8 +929,8 @@ def scan_signals(trading_date: str, workers: int = DEFAULT_WORKERS) -> Dict[str,
     logger.info(f"处理完成: 成功 {success_count}, 失败 {fail_count}")
     
     if results:
-        # 使用新的写连接（解决只读模式的锁问题）
-        conn = duckdb.connect(DB_PATH, read_only=False)
+        from database.connection import get_connection
+        conn = get_connection(DB_PATH)
         try:
             # 创建表（如果不存在）
             conn.execute("""
