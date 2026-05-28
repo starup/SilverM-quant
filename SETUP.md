@@ -395,21 +395,53 @@ agent_integration/
 ### 一行命令完成所有初始化
 
 ```bash
-cd /Users/mawenhao/Desktop/code/股票策略
+cd /path/to/SilverM-quant
 
-# 1. 创建数据库并初始化所有表
+# 1. 创建数据库并初始化所有表（使用 database/schema.py 中的正确 schema，含主键约束）
 python scripts/init_database.py
 
 # 2. 下载日线数据（建议至少6个月）
-# 使用 DWDFetcher，支持 tushare 和 baostock 两个数据源
-# 默认使用 tushare，可通过 DATA_SOURCE 环境变量切换
-python data/updaters/fetcher_dwd.py --start 20250101 --end 20260430
+# 使用 tushare（需2000积分），支持按日期批量拉全市场
+python data/updaters/fetcher_dwd.py --data-type daily --start-date 20250101 --source tushare
 
-# 或使用 baostock（按股票下载，适合首次全量下载）
-DATA_SOURCE=baostock python data/updaters/fetcher_dwd.py --start 20250101 --end 20260430
+# 下载每日指标（PE/PB/市值/换手率，需2000积分）
+python data/updaters/fetcher_dwd.py --data-type daily_basic --start-date 20250101 --source tushare
 
-# 3. 下载指数数据（可选）
-python data/updaters/fetcher_index_daily.py --all
+# 或使用 baostock（免费，但较慢，按股票逐只下载）
+python data/updaters/fetcher_dwd.py --data-type daily --start-date 20250101 --source baostock
+
+# 3. 计算前复权数据（本地计算，无需API调用）
+python -c "
+import duckdb
+conn = duckdb.connect('data/Astock3.duckdb')
+conn.execute('''
+    INSERT OR REPLACE INTO dwd_daily_price_qfq
+    SELECT ts_code, trade_date,
+        open * factor AS open, high * factor AS high,
+        low * factor AS low, close * factor AS close,
+        vol, amount, pct_chg, NULL AS adj_factor, 'calc_qfq' AS data_source
+    FROM (
+        SELECT *,
+            EXP(SUM(LN(1 + COALESCE(pct_chg, 0)/100)) OVER (
+                PARTITION BY ts_code ORDER BY trade_date DESC
+                ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
+            )) / EXP(SUM(LN(1 + COALESCE(pct_chg, 0)/100)) OVER (
+                PARTITION BY ts_code ORDER BY trade_date DESC
+                ROWS BETWEEN 0 PRECEDING AND UNBOUNDED FOLLOWING
+            )) AS factor
+        FROM dwd_daily_price WHERE pct_chg IS NOT NULL
+    )
+''')
+print(f'前复权数据: {conn.execute(\"SELECT COUNT(*) FROM dwd_daily_price_qfq\").fetchone()[0]} 条')
+conn.close()
+"
+
+# 4. 下载指数数据
+python data/updaters/fetcher_dwd.py --data-type index --start-date 20250101 --source tushare
+python data/updaters/fetcher_dwd.py --data-type index --index-code 399001.SZ --start-date 20250101 --source tushare
+
+# 5. 运行全市场信号扫描
+python signals/scan_signals_v2.py
 ```
 
 完成以上步骤后，系统即可正常运行信号扫描和回测功能。
@@ -448,7 +480,7 @@ Dashboard 是基于 Flask + Vue 的 Web 可视化界面，用于监控交易状�
 conda activate silverquant  # 或 source venv/bin/activate
 
 # 进入项目根目录
-cd /Users/mawenhao/Desktop/code/silverquant/Silverquant
+cd /path/to/SilverM-quant
 
 # 启动 Dashboard
 python dashboard/app.py

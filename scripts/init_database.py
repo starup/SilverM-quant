@@ -1,7 +1,11 @@
 import argparse
 import duckdb
 import json
+import sys
+import os
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 TABLE_SCHEMAS = {
     "agent_analysis_results": [
@@ -623,11 +627,20 @@ def init_database(db_path, source_db_path=None):
     db_path = Path(db_path)
     conn = duckdb.connect(str(db_path))
     try:
-        for table_name in TABLE_SCHEMAS:
-            sql = get_create_table_sql(table_name)
-            conn.execute(sql)
-        for view_name, view_sql in VIEW_DEFINITIONS.items():
+        from database.schema import ALL_TABLES, CREATE_VIEW_DAILY_BASIC, CREATE_VIEW_INDEX_DAILY, CREATE_VIEW_STOCK_INFO, CREATE_VIEW_POSITION_ANALYSIS
+
+        view_sqls = [CREATE_VIEW_POSITION_ANALYSIS]
+        for sql in ALL_TABLES:
+            if sql in view_sqls:
+                continue
+            for stmt in sql.strip().split(';'):
+                stmt = stmt.strip()
+                if stmt:
+                    conn.execute(stmt)
+
+        for view_sql in [CREATE_VIEW_DAILY_BASIC, CREATE_VIEW_INDEX_DAILY, CREATE_VIEW_STOCK_INFO, CREATE_VIEW_POSITION_ANALYSIS]:
             conn.execute(view_sql)
+
         conn.commit()
         if source_db_path:
             source_db_path = Path(source_db_path)
@@ -651,7 +664,7 @@ def init_database(db_path, source_db_path=None):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--db", default="Astock3.duckdb", help="Target database path")
+    parser.add_argument("--db", default="data/Astock3.duckdb", help="Target database path")
     parser.add_argument("--source", default=None, help="Source database to copy data from")
     parser.add_argument("--list", action="store_true", help="List all tables and exit")
     args = parser.parse_args()

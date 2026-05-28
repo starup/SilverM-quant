@@ -149,7 +149,7 @@ def get_stock_data(code: str, trading_date: str, days: int = DATA_DAYS) -> Optio
         
         df = conn.execute("""
             SELECT ts_code, trade_date, open, high, low, close, vol
-            FROM dwd_daily_price
+            FROM dwd_daily_price_qfq
             WHERE ts_code = ?
             AND trade_date <= ?
             ORDER BY trade_date DESC
