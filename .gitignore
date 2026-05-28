@@ -40,6 +40,7 @@ Thumbs.db
 *.csv
 *.png
 *.duckdb
+*.duckdb.wal
 *.db
 
 # Environment variables (API keys)
